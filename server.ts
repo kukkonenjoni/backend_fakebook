@@ -7,6 +7,7 @@ import { PrismaClient, Prisma } from '@prisma/client';
 
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const cors = require('cors');
 
 require('dotenv').config();
 
@@ -44,7 +45,6 @@ const resolvers = {
       if (args) {
         throw new UserInputError('asd');
       }
-      console.log(context);
       return context;
     },
   },
@@ -66,7 +66,6 @@ const resolvers = {
       }
     },
     login: async (_parent, args) => {
-      console.log(args);
       const user = await prisma.user.findUnique({
         where: {
           email: args.email,
@@ -77,26 +76,39 @@ const resolvers = {
           password: true,
         },
       });
-      console.log(user);
-      const match = bcrypt.compare(args.password, user?.password).then((res) => res);
+      const match = await bcrypt.compare(args.password, user?.password).then((res) => res);
       if (user && match) {
         const token = await jwt.sign({ id: user.id, email: user.email }, process.env.SECRET);
-        return { token };
+        return { token, id: user.id };
       }
-      return null;
+      throw new UserInputError('Invalid credentials');
     },
   },
-  AuthPayload: { // TBD!!!!!!!!!!!!!!!!!!!!!!!
+  AuthPayload: {
     user: async (parent, args) => {
-      console.log(parent);
       console.log(args);
-      return { id: '123123', email: 'a@a.com' };
+      console.log(parent);
+      const user = await prisma.user.findUnique({
+        where: {
+          id: parent.id,
+        },
+        select: {
+          id: true,
+          email: true,
+          first_name: true,
+          last_name: true,
+          age: true,
+        },
+      });
+      return user;
     },
   },
 };
 
 (async function startApolloServer(typeDefs, resolvers) {
   const app = express();
+
+  app.use(cors());
 
   const httpServer = http.createServer(app);
   const server = new ApolloServer({
