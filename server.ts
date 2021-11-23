@@ -22,8 +22,8 @@ const typeDefs = gql`
     id: ID
     email: String
     age: Int
-    first_name: String
-    last_name: String
+    firstName: String
+    lastName: String
     password: String
   }
   type AuthPayload {
@@ -34,7 +34,7 @@ const typeDefs = gql`
     books: [Book]
   }
   type Mutation {
-    createUser(first_name: String, last_name: String, email: String, age: Int, password: String): User
+    createUser(firstName: String, lastName: String, email: String, age: Int, password: String): User
     login(email: String, password: String): AuthPayload
   }
 `;
@@ -50,6 +50,12 @@ const resolvers = {
   },
   Mutation: {
     createUser: async (_parent, args) => {
+      const {
+        password, email, firstName, lastName, age,
+      } = args;
+      if (!password || !email || !firstName || !lastName || !age) {
+        throw new UserInputError('Please fill all fields');
+      }
       try {
         args.password = await bcrypt.hash(args.password, 12);
         const newUser = await prisma.user.create({
@@ -65,7 +71,11 @@ const resolvers = {
         throw new UserInputError('Unknown Error');
       }
     },
-    login: async (_parent, args) => {
+    login: async (_parent, args, context) => {
+      console.log(context);
+      if (!args.password || !args.email) {
+        throw new UserInputError('Please Fill both fields');
+      }
       const user = await prisma.user.findUnique({
         where: {
           email: args.email,
@@ -76,18 +86,20 @@ const resolvers = {
           password: true,
         },
       });
-      const match = await bcrypt.compare(args.password, user?.password).then((res) => res);
+      if (!user) {
+        throw new UserInputError('Invalid credentials');
+      }
+      const match: boolean = await bcrypt.compare(args.password, user?.password).then((res) => res);
       if (user && match) {
-        const token = await jwt.sign({ id: user.id, email: user.email }, process.env.SECRET);
+        // eslint-disable-next-line max-len
+        const token: string = await jwt.sign({ id: user.id, email: user.email }, process.env.SECRET);
         return { token, id: user.id };
       }
       throw new UserInputError('Invalid credentials');
     },
   },
   AuthPayload: {
-    user: async (parent, args) => {
-      console.log(args);
-      console.log(parent);
+    user: async (parent) => {
       const user = await prisma.user.findUnique({
         where: {
           id: parent.id,
@@ -95,8 +107,8 @@ const resolvers = {
         select: {
           id: true,
           email: true,
-          first_name: true,
-          last_name: true,
+          firstName: true,
+          lastName: true,
           age: true,
         },
       });
@@ -115,10 +127,29 @@ const resolvers = {
     typeDefs,
     resolvers,
     plugins: [ApolloServerPluginDrainHttpServer({ httpServer })],
-    context: ({ req }) => {
-      const token = req.headers.authorization || '';
-      const user = token || 'Joni';
-      return { user };
+    context: async ({ req }) => {
+      const bearerToken = req.headers.authorization || '';
+      const token: string[] = bearerToken.split(' ');
+      if (token[0] === 'Bearer' && token[1]) {
+        try {
+          const tokenId = await jwt.verify(token[1], process.env.SECRET);
+          const user = await prisma.user.findUnique({
+            where: {
+              id: tokenId.id,
+            },
+            select: {
+              id: true,
+            },
+          });
+          if (user) {
+            const { id } = user;
+            return { id };
+          }
+        } catch {
+          return null;
+        }
+      }
+      return null;
     },
   });
   await server.start();
