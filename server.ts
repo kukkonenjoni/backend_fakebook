@@ -32,6 +32,7 @@ const typeDefs = gql`
   }
   type Query {
     books: [Book]
+    currentUser: User!
   }
   type Mutation {
     createUser(firstName: String, lastName: String, email: String, age: Int, password: String): User
@@ -46,6 +47,24 @@ const resolvers = {
         throw new UserInputError('asd');
       }
       return context;
+    },
+    currentUser: async (_parent, _args, { id }) => {
+      console.log(id);
+      if (id) {
+        const User = await prisma.user.findUnique({
+          where: {
+            id,
+          },
+          select: {
+            firstName: true,
+            lastName: true,
+            age: true,
+            email: true,
+          },
+        });
+        return User;
+      }
+      return null;
     },
   },
   Mutation: {
@@ -92,7 +111,7 @@ const resolvers = {
       const match: boolean = await bcrypt.compare(args.password, user?.password).then((res) => res);
       if (user && match) {
         // eslint-disable-next-line max-len
-        const token: string = await jwt.sign({ id: user.id, email: user.email }, process.env.SECRET);
+        const token: string = await jwt.sign({ id: user.id }, process.env.SECRET);
         return { token, id: user.id };
       }
       throw new UserInputError('Invalid credentials');
@@ -127,7 +146,7 @@ const resolvers = {
     typeDefs,
     resolvers,
     plugins: [ApolloServerPluginDrainHttpServer({ httpServer })],
-    context: async ({ req }) => {
+    context: async ({ req }): Promise<{ id: string; } | null> => {
       const bearerToken = req.headers.authorization || '';
       const token: string[] = bearerToken.split(' ');
       if (token[0] === 'Bearer' && token[1]) {
