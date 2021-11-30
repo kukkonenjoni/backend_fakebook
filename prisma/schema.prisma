@@ -17,4 +17,15 @@ model User {
   lastName  String
   age       Int
   password  String
+  posts     Post[]
+}
+
+model Post {
+  id        Int @id @default(autoincrement())
+  author    User  @relation(fields: [authorId], references: [id])
+  authorId  String
+  imageUrl  String?
+  link      String?
+  content   String?
+  createdAt DateTime @default(now())
 }

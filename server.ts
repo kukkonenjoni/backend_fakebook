@@ -5,6 +5,10 @@ import express from 'express';
 import http from 'http';
 import { PrismaClient, Prisma } from '@prisma/client';
 
+const path = require('path');
+const fs = require('fs');
+const { GraphQLUpload, graphqlUploadExpress } = require('graphql-upload');
+
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const cors = require('cors');
@@ -14,6 +18,12 @@ require('dotenv').config();
 const prisma = new PrismaClient();
 
 const typeDefs = gql`
+
+  scalar Upload
+
+  type File {
+    url: String!
+  }
   type Book {
     title: String
     author: String
@@ -25,22 +35,34 @@ const typeDefs = gql`
     firstName: String
     lastName: String
     password: String
+    post: [Post]
   }
   type AuthPayload {
     token: String
     user: User
   }
+  type Post {
+    imageUrl: String
+    author: User
+    content: String
+    createdAt: String
+    link: String
+  }
   type Query {
     books: [Book]
     currentUser: User!
+    getPostsByUser(id: String): User!
   }
   type Mutation {
     createUser(firstName: String, lastName: String, email: String, age: Int, password: String): User
     login(email: String, password: String): AuthPayload
+    singleUpload(file: Upload!): File!
+    createPost(link: String, content: String, imageUrl: String): Post
   }
 `;
 
 const resolvers = {
+  Upload: GraphQLUpload,
   Query: {
     books: async (_parent, args, context) => {
       if (args) {
@@ -65,6 +87,21 @@ const resolvers = {
         return User;
       }
       return null;
+    },
+    getPostsByUser: async (_parent, args) => {
+      const User = await prisma.user.findUnique({
+        where: {
+          id: args.id,
+        },
+        select: {
+          firstName: true,
+          lastName: true,
+          age: true,
+          posts: true,
+          email: true,
+        },
+      });
+      return User;
     },
   },
   Mutation: {
@@ -116,6 +153,30 @@ const resolvers = {
       }
       throw new UserInputError('Invalid credentials');
     },
+    singleUpload: async (_parent, { file }) => {
+      const {
+        createReadStream, filename,
+      } = await file;
+      console.log(file);
+      const stream = createReadStream();
+      const pathName = path.join(__dirname, `/public/images/${filename}`);
+      await stream.pipe(fs.createWriteStream(pathName));
+      return {
+        url: `http://localhost:4000/images/${filename}`,
+      };
+    },
+    createPost: async (_parent, args, context) => {
+      console.log(context);
+      console.log(args);
+      const newPost = await prisma.post.create({
+        data: {
+          authorId: context.id,
+          imageUrl: args.imageUrl,
+          content: args.content,
+        },
+      });
+      return newPost;
+    },
   },
   AuthPayload: {
     user: async (parent) => {
@@ -132,6 +193,12 @@ const resolvers = {
         },
       });
       return user;
+    },
+  },
+  User: {
+    post: async (parent) => {
+      console.log(parent);
+      return parent.posts;
     },
   },
 };
@@ -172,13 +239,9 @@ const resolvers = {
     },
   });
   await server.start();
+  app.use(graphqlUploadExpress());
+  app.use(express.static('public'));
   server.applyMiddleware({ app });
-
-  app.use((_req, _res, next) => {
-    console.log(Date.now());
-    next();
-  });
-
   // eslint-disable-next-line no-promise-executor-return
   await new Promise<void>((resolve) => httpServer.listen({ port: process.env.PORT }, resolve));
   console.log(`🚀 Server ready at http://localhost:4000${server.graphqlPath}`);
