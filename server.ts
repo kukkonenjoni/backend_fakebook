@@ -2,8 +2,12 @@
 import { ApolloServer, gql } from 'apollo-server-express';
 import { ApolloServerPluginDrainHttpServer, UserInputError } from 'apollo-server-core';
 import express from 'express';
-import http from 'http';
+import { createServer } from 'http';
 import { PrismaClient, Prisma } from '@prisma/client';
+import { execute, subscribe } from 'graphql';
+import { SubscriptionServer } from 'subscriptions-transport-ws';
+import { makeExecutableSchema } from '@graphql-tools/schema';
+import { PubSub, withFilter } from 'graphql-subscriptions';
 
 const path = require('path');
 const fs = require('fs');
@@ -36,6 +40,13 @@ const typeDefs = gql`
     lastName: String
     password: String
     post: [Post]
+    friends: [User]
+    messages: [Message]
+  }
+  type Message {
+    receiver: User
+    sender: User
+    content: String
   }
   type AuthPayload {
     token: String
@@ -58,20 +69,17 @@ const typeDefs = gql`
     login(email: String, password: String): AuthPayload
     singleUpload(file: Upload!): File!
     createPost(link: String, content: String, imageUrl: String): Post
+    message(receiver: ID, sender: ID, content: String ): Message
+  }
+  type Subscription {
+    message: Message
   }
 `;
-
+const pubsub = new PubSub();
 const resolvers = {
   Upload: GraphQLUpload,
   Query: {
-    books: async (_parent, args, context) => {
-      if (args) {
-        throw new UserInputError('asd');
-      }
-      return context;
-    },
     currentUser: async (_parent, _args, { id }) => {
-      console.log(id);
       if (id) {
         const User = await prisma.user.findUnique({
           where: {
@@ -82,6 +90,25 @@ const resolvers = {
             lastName: true,
             age: true,
             email: true,
+            posts: true,
+            friends: {
+              select: {
+                lastName: true,
+                firstName: true,
+                id: true,
+                email: true,
+                age: true,
+                posts: true,
+                friends: {
+                  select: {
+                    lastName: true,
+                    firstName: true,
+                    age: true,
+                    email: true,
+                  },
+                },
+              },
+            },
           },
         });
         return User;
@@ -127,8 +154,7 @@ const resolvers = {
         throw new UserInputError('Unknown Error');
       }
     },
-    login: async (_parent, args, context) => {
-      console.log(context);
+    login: async (_parent, args) => {
       if (!args.password || !args.email) {
         throw new UserInputError('Please Fill both fields');
       }
@@ -157,7 +183,6 @@ const resolvers = {
       const {
         createReadStream, filename,
       } = await file;
-      console.log(file);
       const stream = createReadStream();
       const pathName = path.join(__dirname, `/public/images/${filename}`);
       await stream.pipe(fs.createWriteStream(pathName));
@@ -166,8 +191,6 @@ const resolvers = {
       };
     },
     createPost: async (_parent, args, context) => {
-      console.log(context);
-      console.log(args);
       const newPost = await prisma.post.create({
         data: {
           authorId: context.id,
@@ -176,6 +199,21 @@ const resolvers = {
         },
       });
       return newPost;
+    },
+    message: async (_parent, args) => {
+      pubsub.publish('NEW_MESSAGE', { message: args });
+      return args;
+    },
+  },
+  Subscription: {
+    message: {
+      subscribe: withFilter(
+        () => pubsub.asyncIterator(['NEW_MESSAGE']),
+        (_payload, _variables, { id }) => {
+          console.log(id);
+          return true;
+        },
+      ),
     },
   },
   AuthPayload: {
@@ -196,23 +234,64 @@ const resolvers = {
     },
   },
   User: {
-    post: async (parent) => {
-      console.log(parent);
-      return parent.posts;
+    post: async (parent) => parent.posts,
+    friends: async ({ friends }) => friends,
+  },
+  Post: {
+    author: async (parent) => {
+      const User = await prisma.user.findUnique({
+        where: {
+          id: parent.authorId,
+        },
+        select: {
+          firstName: true,
+          lastName: true,
+        },
+      });
+      return User;
+    },
+  },
+  Message: {
+    receiver: async (parent) => {
+      const User = prisma.user.findUnique({
+        where: {
+          id: parent.receiver,
+        },
+      });
+      return User;
+    },
+    sender: async (parent) => {
+      const User = prisma.user.findUnique({
+        where: {
+          id: parent.sender,
+        },
+      });
+      return User;
     },
   },
 };
 
 (async function startApolloServer(typeDefs, resolvers) {
   const app = express();
-
+  const schema = makeExecutableSchema({ typeDefs, resolvers });
   app.use(cors());
-
-  const httpServer = http.createServer(app);
+  const httpServer = createServer(app);
   const server = new ApolloServer({
     typeDefs,
     resolvers,
-    plugins: [ApolloServerPluginDrainHttpServer({ httpServer })],
+    plugins: [
+      ApolloServerPluginDrainHttpServer({ httpServer }),
+      {
+        async serverWillStart() {
+          return {
+            async drainServer() {
+              // eslint-disable-next-line no-use-before-define
+              subscriptionServer.close();
+            },
+          };
+        },
+      },
+    ],
     context: async ({ req }): Promise<{ id: string; } | null> => {
       const bearerToken = req.headers.authorization || '';
       const token: string[] = bearerToken.split(' ');
@@ -242,7 +321,22 @@ const resolvers = {
   app.use(graphqlUploadExpress());
   app.use(express.static('public'));
   server.applyMiddleware({ app });
+  const subscriptionServer = SubscriptionServer.create(
+    {
+      schema,
+      execute,
+      subscribe,
+      onConnect(connectionParams) {
+        console.log(connectionParams.Authorization);
+        console.log('Connected!');
+      },
+    },
+    { server: httpServer, path: server.graphqlPath },
+  );
   // eslint-disable-next-line no-promise-executor-return
   await new Promise<void>((resolve) => httpServer.listen({ port: process.env.PORT }, resolve));
   console.log(`🚀 Server ready at http://localhost:4000${server.graphqlPath}`);
+  console.log(
+    `🚀 Subscription endpoint ready at ws://localhost:4000${server.graphqlPath}`,
+  );
 }(typeDefs, resolvers));

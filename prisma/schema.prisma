@@ -11,13 +11,15 @@ datasource db {
 }
 
 model User {
-  id        String @id @default(uuid())
-  email     String @unique
-  firstName String
-  lastName  String
-  age       Int
-  password  String
-  posts     Post[]
+  id                String @id @default(uuid())
+  email             String @unique
+  firstName         String
+  lastName          String
+  age               Int
+  password          String
+  posts             Post[]
+  friends           User[] @relation("friends")
+  friendsRelation   User[] @relation("friends")
 }
 
 model Post {
