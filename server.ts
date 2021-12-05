@@ -53,6 +53,7 @@ const typeDefs = gql`
     user: User
   }
   type Post {
+    id: ID
     imageUrl: String
     author: User
     content: String
@@ -244,6 +245,7 @@ const resolvers = {
           id: parent.authorId,
         },
         select: {
+          id: true,
           firstName: true,
           lastName: true,
         },
@@ -326,9 +328,28 @@ const resolvers = {
       schema,
       execute,
       subscribe,
-      onConnect(connectionParams) {
-        console.log(connectionParams.Authorization);
+      async onConnect(connectionParams) {
         console.log('Connected!');
+        try {
+          const tokenId = await jwt.verify(connectionParams.authToken, process.env.SECRET);
+          const user = await prisma.user.findUnique({
+            where: {
+              id: tokenId.id,
+            },
+            select: {
+              id: true,
+            },
+          });
+          if (user) {
+            const { id } = user;
+            console.log(id);
+            console.log('Connected!');
+            return { id };
+          }
+        } catch {
+          return null;
+        }
+        return null;
       },
     },
     { server: httpServer, path: server.graphqlPath },
