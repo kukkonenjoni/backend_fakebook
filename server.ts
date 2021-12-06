@@ -28,10 +28,6 @@ const typeDefs = gql`
   type File {
     url: String!
   }
-  type Book {
-    title: String
-    author: String
-  }
   type User {
     id: ID
     email: String
@@ -39,14 +35,21 @@ const typeDefs = gql`
     firstName: String
     lastName: String
     password: String
+    status: Boolean
     post: [Post]
     friends: [User]
+    messages: [Chatroom]
+  }
+  type Chatroom {
+    id: ID
+    user1Id: User
+    user2Id: User
     messages: [Message]
   }
   type Message {
-    receiver: User
-    sender: User
-    content: String
+    id: ID
+    chatroom: Chatroom
+    messagecontent: String
   }
   type AuthPayload {
     token: String
@@ -61,16 +64,16 @@ const typeDefs = gql`
     link: String
   }
   type Query {
-    books: [Book]
     currentUser: User!
     getPostsByUser(id: String): User!
+    getAllMessages: [Chatroom]
   }
   type Mutation {
     createUser(firstName: String, lastName: String, email: String, age: Int, password: String): User
     login(email: String, password: String): AuthPayload
     singleUpload(file: Upload!): File!
     createPost(link: String, content: String, imageUrl: String): Post
-    message(receiver: ID, sender: ID, content: String ): Message
+    message(receiver: ID, content: String): Message
   }
   type Subscription {
     message: Message
@@ -89,16 +92,13 @@ const resolvers = {
           select: {
             firstName: true,
             lastName: true,
-            age: true,
-            email: true,
             posts: true,
             friends: {
               select: {
+                status: true,
                 lastName: true,
                 firstName: true,
                 id: true,
-                email: true,
-                age: true,
                 posts: true,
                 friends: {
                   select: {
@@ -130,6 +130,32 @@ const resolvers = {
         },
       });
       return User;
+    },
+    getAllMessages: async (_parent, _args, { id }) => {
+      const chatrooms = await prisma.messagesMiddleware.findMany({
+        where: {
+          OR: [
+            {
+              user1Id: id,
+            },
+            {
+              user2Id: id,
+            },
+          ],
+        },
+        select: {
+          messages: {
+            select: {
+              id: true,
+              messagecontent: true,
+            },
+          },
+          id: true,
+          user1Id: true,
+          user2Id: true,
+        },
+      });
+      return chatrooms;
     },
   },
   Mutation: {
@@ -201,9 +227,46 @@ const resolvers = {
       });
       return newPost;
     },
-    message: async (_parent, args) => {
-      pubsub.publish('NEW_MESSAGE', { message: args });
-      return args;
+    message: async (_parent, { content, receiver }, { id }) => {
+      pubsub.publish('NEW_MESSAGE', { message: content, receiver });
+      let chatroom;
+      chatroom = await prisma.messagesMiddleware.findFirst({
+        where: {
+          OR: [
+            {
+              user1Id: id,
+              user2Id: receiver,
+            },
+            {
+              user1Id: receiver,
+              user2Id: id,
+            },
+          ],
+        },
+        select: {
+          id: true,
+          user1Id: true,
+          user2Id: true,
+          messages: true,
+        },
+      });
+      if (!chatroom) {
+        chatroom = await prisma.messagesMiddleware.create({
+          data: {
+            user1Id: id,
+            user2Id: receiver,
+          },
+        });
+      }
+      console.log(chatroom);
+      const newMessage = await prisma.message.create({
+        data: {
+          messagecontent: content,
+          messagemiddlewareId: chatroom.id,
+        },
+      });
+      console.log(newMessage);
+      return { content };
     },
   },
   Subscription: {
@@ -253,23 +316,8 @@ const resolvers = {
       return User;
     },
   },
-  Message: {
-    receiver: async (parent) => {
-      const User = prisma.user.findUnique({
-        where: {
-          id: parent.receiver,
-        },
-      });
-      return User;
-    },
-    sender: async (parent) => {
-      const User = prisma.user.findUnique({
-        where: {
-          id: parent.sender,
-        },
-      });
-      return User;
-    },
+  Chatroom: {
+    messages: (parent) => parent.messages,
   },
 };
 
@@ -329,7 +377,6 @@ const resolvers = {
       execute,
       subscribe,
       async onConnect(connectionParams) {
-        console.log('Connected!');
         try {
           const tokenId = await jwt.verify(connectionParams.authToken, process.env.SECRET);
           const user = await prisma.user.findUnique({
@@ -342,14 +389,35 @@ const resolvers = {
           });
           if (user) {
             const { id } = user;
-            console.log(id);
-            console.log('Connected!');
+            await prisma.user.update({
+              where: {
+                id,
+              },
+              data: {
+                status: true,
+              },
+            });
+            console.log(`User ${id} Connected`);
             return { id };
           }
         } catch {
           return null;
         }
         return null;
+      },
+      async onDisconnect(_websocket, context) {
+        if (context.initPromise) {
+          const { id } = await context.initPromise;
+          await prisma.user.update({
+            where: {
+              id,
+            },
+            data: {
+              status: false,
+            },
+          });
+          console.log(`User ${id} Disconnected`);
+        }
       },
     },
     { server: httpServer, path: server.graphqlPath },

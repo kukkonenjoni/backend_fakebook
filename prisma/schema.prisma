@@ -11,15 +11,19 @@ datasource db {
 }
 
 model User {
-  id                String @id @default(uuid())
-  email             String @unique
-  firstName         String
-  lastName          String
-  age               Int
-  password          String
-  posts             Post[]
-  friends           User[] @relation("friends")
-  friendsRelation   User[] @relation("friends")
+  id                  String @id @default(uuid())
+  email               String @unique
+  firstName           String
+  lastName            String
+  age                 Int
+  password            String
+  posts               Post[]
+  comments            Comment[]
+  friends             User[] @relation("friends")
+  friendsRelation     User[] @relation("friends")
+  status              Boolean @default(false)
+  messages_user1      MessagesMiddleware[] @relation("user1")
+  messages_user2      MessagesMiddleware[] @relation("user2")
 }
 
 model Post {
@@ -30,4 +34,29 @@ model Post {
   link      String?
   content   String?
   createdAt DateTime @default(now())
+  comments  Comment[]
+}
+
+model Comment {
+  id        Int @id @default(autoincrement())
+  author    User  @relation(fields: [authorId], references: [id])
+  authorId  String
+  comment   String
+  post      Post @relation(fields: [postId], references: [id])
+  postId    Int
+}
+model MessagesMiddleware {
+  id        Int @id @default(autoincrement())
+  user1     User  @relation("user1",fields: [user1Id], references: [id])
+  user1Id   String
+  user2     User  @relation("user2",fields: [user2Id], references: [id])
+  user2Id   String
+  messages  Message[]
+}
+model Message {
+  id                  Int @id @default(autoincrement())
+  createdAt           DateTime @default(now())
+  messagemiddleware   MessagesMiddleware @relation(fields: [messagemiddlewareId], references: [id])
+  messagemiddlewareId Int
+  messagecontent      String
 }
