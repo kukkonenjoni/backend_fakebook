@@ -7,7 +7,7 @@ import { PrismaClient, Prisma } from '@prisma/client';
 import { execute, subscribe } from 'graphql';
 import { SubscriptionServer } from 'subscriptions-transport-ws';
 import { makeExecutableSchema } from '@graphql-tools/schema';
-import { PubSub, withFilter } from 'graphql-subscriptions';
+import { PubSub } from 'graphql-subscriptions';
 
 const path = require('path');
 const fs = require('fs');
@@ -48,6 +48,7 @@ const typeDefs = gql`
   }
   type Message {
     id: ID
+    createdAt: String
     chatroom: Chatroom
     messagecontent: String
   }
@@ -228,7 +229,6 @@ const resolvers = {
       return newPost;
     },
     message: async (_parent, { content, receiver }, { id }) => {
-      pubsub.publish('NEW_MESSAGE', { message: content, receiver });
       let chatroom;
       chatroom = await prisma.messagesMiddleware.findFirst({
         where: {
@@ -258,26 +258,32 @@ const resolvers = {
           },
         });
       }
-      console.log(chatroom);
       const newMessage = await prisma.message.create({
         data: {
           messagecontent: content,
           messagemiddlewareId: chatroom.id,
         },
+        select: {
+          id: true,
+          createdAt: true,
+          messagecontent: true,
+          messagemiddlewareId: true,
+        },
       });
-      console.log(newMessage);
-      return { content };
+      pubsub.publish('NEW_MESSAGE', {
+        message: {
+          id: newMessage.id,
+          createdAt: newMessage.createdAt,
+          chatroom: newMessage.messagemiddlewareId,
+          messagecontent: newMessage.messagecontent,
+        },
+      });
+      return newMessage;
     },
   },
   Subscription: {
     message: {
-      subscribe: withFilter(
-        () => pubsub.asyncIterator(['NEW_MESSAGE']),
-        (_payload, _variables, { id }) => {
-          console.log(id);
-          return true;
-        },
-      ),
+      subscribe: () => pubsub.asyncIterator(['NEW_MESSAGE']),
     },
   },
   AuthPayload: {
@@ -318,6 +324,12 @@ const resolvers = {
   },
   Chatroom: {
     messages: (parent) => parent.messages,
+  },
+  Message: {
+    chatroom: async (parent) => {
+      console.log(parent);
+      return { id: parent.chatroom };
+    },
   },
 };
 
@@ -407,16 +419,18 @@ const resolvers = {
       },
       async onDisconnect(_websocket, context) {
         if (context.initPromise) {
-          const { id } = await context.initPromise;
-          await prisma.user.update({
-            where: {
-              id,
-            },
-            data: {
-              status: false,
-            },
-          });
-          console.log(`User ${id} Disconnected`);
+          const ctxUser = await context.initPromise;
+          if (ctxUser) {
+            await prisma.user.update({
+              where: {
+                id: ctxUser.id,
+              },
+              data: {
+                status: false,
+              },
+            });
+            console.log(`User ${ctxUser?.id} Disconnected`);
+          }
         }
       },
     },
