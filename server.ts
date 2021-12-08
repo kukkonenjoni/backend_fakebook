@@ -42,8 +42,8 @@ const typeDefs = gql`
   }
   type Chatroom {
     id: ID
-    user1Id: User
-    user2Id: User
+    user1: User
+    user2: User
     messages: [Message]
   }
   type Message {
@@ -152,8 +152,20 @@ const resolvers = {
             },
           },
           id: true,
-          user1Id: true,
-          user2Id: true,
+          user1: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+            },
+          },
+          user2: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+            },
+          },
         },
       });
       return chatrooms;
@@ -260,6 +272,7 @@ const resolvers = {
       }
       const newMessage = await prisma.message.create({
         data: {
+          createdById: receiver,
           messagecontent: content,
           messagemiddlewareId: chatroom.id,
         },
@@ -324,12 +337,14 @@ const resolvers = {
   },
   Chatroom: {
     messages: (parent) => parent.messages,
+    user1: (parent) => {
+      console.log(parent);
+      return parent.user1;
+    },
+    user2: (parent) => parent.user2,
   },
   Message: {
-    chatroom: async (parent) => {
-      console.log(parent);
-      return { id: parent.chatroom };
-    },
+    chatroom: async (parent) => ({ id: parent.chatroom }),
   },
 };
 
