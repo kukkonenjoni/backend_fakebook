@@ -24,7 +24,8 @@ model User {
   status              Boolean @default(false)
   messages_user1      MessagesMiddleware[] @relation("user1")
   messages_user2      MessagesMiddleware[] @relation("user2")
-  messages            Message[]
+  messages            Message[] @relation("sender")
+  messages2            Message[] @relation("receiver")
 }
 
 model Post {
@@ -60,6 +61,8 @@ model Message {
   messagemiddleware   MessagesMiddleware @relation(fields: [messagemiddlewareId], references: [id])
   messagemiddlewareId Int
   messagecontent      String
-  createdBy           User @relation(fields: [createdById], references: [id])
+  createdBy           User @relation("sender",fields: [createdById], references: [id])
   createdById         String
+  receivedBy          User @relation("receiver" ,fields: [receivedById], references: [id])
+  receivedById        String
 }

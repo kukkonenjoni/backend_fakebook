@@ -7,7 +7,7 @@ import { PrismaClient, Prisma } from '@prisma/client';
 import { execute, subscribe } from 'graphql';
 import { SubscriptionServer } from 'subscriptions-transport-ws';
 import { makeExecutableSchema } from '@graphql-tools/schema';
-import { PubSub } from 'graphql-subscriptions';
+import { PubSub, withFilter } from 'graphql-subscriptions';
 
 const path = require('path');
 const fs = require('fs');
@@ -49,6 +49,8 @@ const typeDefs = gql`
   type Message {
     id: ID
     createdAt: String
+    createdBy: User
+    receivedBy: User
     chatroom: Chatroom
     messagecontent: String
   }
@@ -147,6 +149,8 @@ const resolvers = {
         select: {
           messages: {
             select: {
+              receivedBy: true,
+              createdBy: true,
               id: true,
               messagecontent: true,
             },
@@ -272,12 +276,23 @@ const resolvers = {
       }
       const newMessage = await prisma.message.create({
         data: {
-          createdById: receiver,
+          createdById: id,
+          receivedById: receiver,
           messagecontent: content,
           messagemiddlewareId: chatroom.id,
         },
         select: {
           id: true,
+          createdBy: {
+            select: {
+              id: true,
+            },
+          },
+          receivedBy: {
+            select: {
+              id: true,
+            },
+          },
           createdAt: true,
           messagecontent: true,
           messagemiddlewareId: true,
@@ -286,6 +301,8 @@ const resolvers = {
       pubsub.publish('NEW_MESSAGE', {
         message: {
           id: newMessage.id,
+          createdBy: newMessage.createdBy,
+          receivedBy: newMessage.receivedBy,
           createdAt: newMessage.createdAt,
           chatroom: newMessage.messagemiddlewareId,
           messagecontent: newMessage.messagecontent,
@@ -296,7 +313,11 @@ const resolvers = {
   },
   Subscription: {
     message: {
-      subscribe: () => pubsub.asyncIterator(['NEW_MESSAGE']),
+      subscribe: withFilter(
+        () => pubsub.asyncIterator('NEW_MESSAGE'),
+        (payload, _variables, { id }) => (payload.message.receivedBy.id === id),
+      ),
+      // subscribe: () => { pubsub.asyncIterator(['NEW_MESSAGE']); },
     },
   },
   AuthPayload: {
@@ -317,7 +338,7 @@ const resolvers = {
     },
   },
   User: {
-    post: async (parent) => parent.posts,
+    post: async ({ posts }) => posts,
     friends: async ({ friends }) => friends,
   },
   Post: {
@@ -336,15 +357,14 @@ const resolvers = {
     },
   },
   Chatroom: {
-    messages: (parent) => parent.messages,
-    user1: (parent) => {
-      console.log(parent);
-      return parent.user1;
-    },
-    user2: (parent) => parent.user2,
+    messages: ({ messages }) => messages,
+    user1: ({ user1 }) => user1,
+    user2: ({ user2 }) => user2,
   },
   Message: {
     chatroom: async (parent) => ({ id: parent.chatroom }),
+    createdBy: async ({ createdBy }) => createdBy,
+    receivedBy: async ({ receivedBy }) => receivedBy,
   },
 };
 
