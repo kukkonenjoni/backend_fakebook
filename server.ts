@@ -70,6 +70,7 @@ const typeDefs = gql`
     currentUser: User!
     getPostsByUser(id: String): User!
     getAllMessages: [Chatroom]
+    search(name: String): [User]
   }
   type Mutation {
     createUser(firstName: String, lastName: String, email: String, age: Int, password: String): User
@@ -94,6 +95,8 @@ const resolvers = {
           },
           select: {
             firstName: true,
+            id: true,
+            email: true,
             lastName: true,
             posts: true,
             friends: {
@@ -173,6 +176,25 @@ const resolvers = {
         },
       });
       return chatrooms;
+    },
+    search: async (_parent, args) => {
+      console.log('search', args);
+      const Users = await prisma.user.findMany({
+        where: {
+          OR: [
+            {
+              firstName: {
+                contains: args.name,
+              },
+              lastName: {
+                contains: args.name,
+              },
+            },
+          ],
+        },
+      });
+      console.log(Users);
+      return Users;
     },
   },
   Mutation: {
@@ -315,7 +337,8 @@ const resolvers = {
     message: {
       subscribe: withFilter(
         () => pubsub.asyncIterator('NEW_MESSAGE'),
-        (payload, _variables, { id }) => (payload.message.receivedBy.id === id),
+        // eslint-disable-next-line max-len
+        (payload, _variables, { id }) => (payload.message.receivedBy.id === id || payload.message.createdBy.id === id),
       ),
       // subscribe: () => { pubsub.asyncIterator(['NEW_MESSAGE']); },
     },
@@ -334,6 +357,7 @@ const resolvers = {
           age: true,
         },
       });
+      console.log(user);
       return user;
     },
   },
