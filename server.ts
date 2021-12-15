@@ -192,6 +192,12 @@ const resolvers = {
             },
           ],
         },
+        select: {
+          firstName: true,
+          lastName: true,
+          id: true,
+          age: true,
+        },
       });
       console.log(Users);
       return Users;
