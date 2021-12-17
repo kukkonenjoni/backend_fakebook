@@ -39,6 +39,9 @@ const typeDefs = gql`
     post: [Post]
     friends: [User]
     messages: [Chatroom]
+    profilePic: String
+    sent_friendreq: [User]
+    received_friendreq: [User]
   }
   type Chatroom {
     id: ID
@@ -68,6 +71,7 @@ const typeDefs = gql`
   }
   type Query {
     currentUser: User!
+    getUser(userId: ID): User!
     getPostsByUser(id: String): User!
     getAllMessages: [Chatroom]
     search(name: String): [User]
@@ -78,6 +82,8 @@ const typeDefs = gql`
     singleUpload(file: Upload!): File!
     createPost(link: String, content: String, imageUrl: String): Post
     message(receiver: ID, content: String): Message
+    sendFriendReq(friendId: ID): User
+    acceptFriendReq(friendId: ID): User
   }
   type Subscription {
     message: Message
@@ -197,10 +203,29 @@ const resolvers = {
           lastName: true,
           id: true,
           age: true,
+          profilePic: true,
         },
       });
       console.log(Users);
       return Users;
+    },
+    getUser: async (_parent, { userId }, { id }) => {
+      console.log(id);
+      const User = prisma.user.findUnique({
+        where: {
+          id: userId,
+        },
+        select: {
+          firstName: true,
+          lastName: true,
+          age: true,
+          email: true,
+          friends: true,
+          posts: true,
+          profilePic: true,
+        },
+      });
+      return User;
     },
   },
   Mutation: {
@@ -338,6 +363,89 @@ const resolvers = {
       });
       return newMessage;
     },
+    sendFriendReq: async (_parent, { friendId }, { id }) => {
+      console.log(id);
+      const User = await prisma.user.update({
+        where: {
+          id,
+        },
+        data: {
+          sent_friendreq: {
+            connect: { id: friendId },
+          },
+        },
+        select: {
+          sent_friendreq: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+            },
+          },
+        },
+      });
+      console.log(User);
+      return { id };
+    },
+    acceptFriendReq: async (_parent, { friendId }, { id }) => {
+      console.log('You: ', id);
+      console.log('Him: ', friendId);
+      const you = await prisma.user.findUnique({
+        where: {
+          id,
+        },
+        select: {
+          received_friendreq: {
+            select: { id: true },
+          },
+        },
+      });
+      const verifyFriend = you?.received_friendreq.filter((friend) => {
+        if (friend.id === friendId) {
+          return friend;
+        }
+        return null;
+      });
+      if (verifyFriend !== undefined && verifyFriend.length === 1) {
+        await prisma.user.update({
+          where: {
+            id: friendId,
+          },
+          data: {
+            friends: {
+              connect: { id },
+            },
+            sent_friendreq: {
+              disconnect: { id },
+            },
+          },
+        });
+        const you = await prisma.user.update({
+          where: {
+            id,
+          },
+          data: {
+            friends: {
+              connect: { id: friendId },
+            },
+            received_friendreq: {
+              disconnect: { id: friendId },
+            },
+          },
+          select: {
+            id: true,
+            friends: {
+              select: {
+                firstName: true,
+                lastName: true,
+              },
+            },
+          },
+        });
+        return you;
+      }
+      return null;
+    },
   },
   Subscription: {
     message: {
@@ -346,7 +454,6 @@ const resolvers = {
         // eslint-disable-next-line max-len
         (payload, _variables, { id }) => (payload.message.receivedBy.id === id || payload.message.createdBy.id === id),
       ),
-      // subscribe: () => { pubsub.asyncIterator(['NEW_MESSAGE']); },
     },
   },
   AuthPayload: {
@@ -370,6 +477,10 @@ const resolvers = {
   User: {
     post: async ({ posts }) => posts,
     friends: async ({ friends }) => friends,
+    sent_friendreq: async (parent) => {
+      console.log(parent);
+      return parent;
+    },
   },
   Post: {
     author: async (parent) => {
