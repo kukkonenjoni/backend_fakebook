@@ -1,3 +1,4 @@
+/* eslint-disable camelcase */
 /* eslint-disable no-param-reassign */
 import { ApolloServer, gql } from 'apollo-server-express';
 import { ApolloServerPluginDrainHttpServer, UserInputError } from 'apollo-server-core';
@@ -70,7 +71,7 @@ const typeDefs = gql`
     link: String
   }
   type Query {
-    currentUser: User!
+    currentUser: User
     getUser(userId: ID): User!
     getPostsByUser(id: String): User!
     getAllMessages: [Chatroom]
@@ -105,6 +106,22 @@ const resolvers = {
             email: true,
             lastName: true,
             posts: true,
+            sent_friendreq: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                profilePic: true,
+              },
+            },
+            received_friendreq: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                profilePic: true,
+              },
+            },
             friends: {
               select: {
                 status: true,
@@ -112,14 +129,6 @@ const resolvers = {
                 firstName: true,
                 id: true,
                 posts: true,
-                friends: {
-                  select: {
-                    lastName: true,
-                    firstName: true,
-                    age: true,
-                    email: true,
-                  },
-                },
               },
             },
           },
@@ -183,17 +192,19 @@ const resolvers = {
       });
       return chatrooms;
     },
-    search: async (_parent, args) => {
-      console.log('search', args);
+    search: async (_parent, { name }) => {
+      console.log('search', name);
       const Users = await prisma.user.findMany({
         where: {
           OR: [
             {
               firstName: {
-                contains: args.name,
+                contains: name,
               },
+            },
+            {
               lastName: {
-                contains: args.name,
+                contains: name,
               },
             },
           ],
@@ -396,7 +407,7 @@ const resolvers = {
         },
         select: {
           received_friendreq: {
-            select: { id: true },
+            select: { id: true, firstName: true, lastName: true },
           },
         },
       });
@@ -407,7 +418,7 @@ const resolvers = {
         return null;
       });
       if (verifyFriend !== undefined && verifyFriend.length === 1) {
-        await prisma.user.update({
+        const him = await prisma.user.update({
           where: {
             id: friendId,
           },
@@ -420,7 +431,7 @@ const resolvers = {
             },
           },
         });
-        const you = await prisma.user.update({
+        await prisma.user.update({
           where: {
             id,
           },
@@ -442,7 +453,7 @@ const resolvers = {
             },
           },
         });
-        return you;
+        return him;
       }
       return null;
     },
@@ -477,10 +488,8 @@ const resolvers = {
   User: {
     post: async ({ posts }) => posts,
     friends: async ({ friends }) => friends,
-    sent_friendreq: async (parent) => {
-      console.log(parent);
-      return parent;
-    },
+    sent_friendreq: ({ sent_friendreq }) => sent_friendreq,
+    received_friendreq: ({ received_friendreq }) => received_friendreq,
   },
   Post: {
     author: async (parent) => {
