@@ -407,7 +407,9 @@ const resolvers = {
         },
         select: {
           received_friendreq: {
-            select: { id: true, firstName: true, lastName: true },
+            select: {
+              id: true, firstName: true, lastName: true,
+            },
           },
         },
       });
@@ -430,8 +432,14 @@ const resolvers = {
               disconnect: { id },
             },
           },
+          select: {
+            status: true,
+            firstName: true,
+            lastName: true,
+            id: true,
+          },
         });
-        await prisma.user.update({
+        const you = await prisma.user.update({
           where: {
             id,
           },
@@ -445,12 +453,12 @@ const resolvers = {
           },
           select: {
             id: true,
-            friends: {
-              select: {
-                firstName: true,
-                lastName: true,
-              },
-            },
+          },
+        });
+        await prisma.messagesMiddleware.create({
+          data: {
+            user1Id: you.id,
+            user2Id: him.id,
           },
         });
         return him;
