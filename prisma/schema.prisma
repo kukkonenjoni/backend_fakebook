@@ -29,6 +29,7 @@ model User {
   profilePic          String? @default("https://media.istockphoto.com/vectors/default-profile-picture-avatar-photo-placeholder-vector-illustration-vector-id1223671392")
   sent_friendreq      User[] @relation("friendreq")
   received_friendreq  User[] @relation("friendreq")
+  bio                 String?
 }
 
 model Post {

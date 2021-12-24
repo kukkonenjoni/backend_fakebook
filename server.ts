@@ -43,6 +43,7 @@ const typeDefs = gql`
     profilePic: String
     sent_friendreq: [User]
     received_friendreq: [User]
+    bio: String
   }
   type Chatroom {
     id: ID
@@ -234,6 +235,7 @@ const resolvers = {
           friends: true,
           posts: true,
           profilePic: true,
+          bio: true,
         },
       });
       return User;
