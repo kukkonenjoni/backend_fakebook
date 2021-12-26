@@ -30,6 +30,16 @@ model User {
   sent_friendreq      User[] @relation("friendreq")
   received_friendreq  User[] @relation("friendreq")
   bio                 String?
+  likes               LikesOnPost[]
+}
+model LikesOnPost {
+  user        User     @relation(fields: [userId], references: [id])
+  userId      String
+  post        Post @relation(fields: [postId], references: [id])
+  postId      Int
+  createdAt   DateTime @default(now())
+
+  @@id([userId, postId])
 }
 
 model Post {
@@ -41,6 +51,7 @@ model Post {
   content   String?
   createdAt DateTime @default(now())
   comments  Comment[]
+  likes     LikesOnPost[]
 }
 
 model Comment {

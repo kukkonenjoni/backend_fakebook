@@ -70,6 +70,7 @@ const typeDefs = gql`
     content: String
     createdAt: String
     link: String
+    likes: [User]
   }
   type Query {
     currentUser: User
@@ -86,6 +87,8 @@ const typeDefs = gql`
     message(receiver: ID, content: String): Message
     sendFriendReq(friendId: ID): User
     acceptFriendReq(friendId: ID): User
+    editUser(profilePic: String, age: Int, bio: String, firstName: String, lastName: String): User
+    like(postId: Int): Post
   }
   type Subscription {
     message: Message
@@ -102,11 +105,23 @@ const resolvers = {
             id,
           },
           select: {
+            profilePic: true,
             firstName: true,
             id: true,
             email: true,
             lastName: true,
-            posts: true,
+            posts: {
+              select: {
+                id: true,
+                comments: true,
+                content: true,
+                link: true,
+                imageUrl: true,
+                authorId: true,
+                createdAt: true,
+                likes: true,
+              },
+            },
             sent_friendreq: {
               select: {
                 id: true,
@@ -125,11 +140,23 @@ const resolvers = {
             },
             friends: {
               select: {
+                profilePic: true,
                 status: true,
                 lastName: true,
                 firstName: true,
                 id: true,
-                posts: true,
+                posts: {
+                  select: {
+                    id: true,
+                    comments: true,
+                    content: true,
+                    link: true,
+                    imageUrl: true,
+                    authorId: true,
+                    createdAt: true,
+                    likes: true,
+                  },
+                },
               },
             },
           },
@@ -227,21 +254,55 @@ const resolvers = {
         where: {
           id: userId,
         },
-        select: {
-          firstName: true,
-          lastName: true,
-          age: true,
-          email: true,
-          friends: true,
-          posts: true,
-          profilePic: true,
-          bio: true,
+        include: {
+          posts: {
+            orderBy: {
+              createdAt: 'desc',
+            },
+          },
         },
       });
       return User;
     },
   },
   Mutation: {
+    like: async (_parent, { postId }, { id }) => {
+      console.log(postId);
+      console.log(id);
+      let hasLiked = false;
+      const Post = await prisma.post.findUnique({
+        where: {
+          id: postId,
+        },
+        select: {
+          likes: true,
+        },
+      });
+      Post?.likes.forEach((user) => {
+        if (user.userId === id) {
+          hasLiked = true;
+        }
+      });
+      if (!hasLiked) {
+        await prisma.likesOnPost.create({
+          data: {
+            userId: id,
+            postId,
+          },
+        });
+        const Post2 = await prisma.post.findUnique({
+          where: {
+            id: postId,
+          },
+          select: {
+            id: true,
+            likes: true,
+          },
+        });
+        return Post2;
+      }
+      return null;
+    },
     createUser: async (_parent, args) => {
       const {
         password, email, firstName, lastName, age,
@@ -467,6 +528,35 @@ const resolvers = {
       }
       return null;
     },
+    editUser: async (_parent, {
+      profilePic, age, firstName, lastName, bio,
+    }, { id }) => {
+      const User = await prisma.user.findUnique({
+        where: {
+          id,
+        },
+        select: {
+          profilePic: true,
+          age: true,
+          firstName: true,
+          lastName: true,
+          bio: true,
+        },
+      });
+      const newUser = prisma.user.update({
+        where: {
+          id,
+        },
+        data: {
+          profilePic: profilePic || User?.profilePic,
+          age: age || User?.age,
+          firstName: firstName || User?.firstName,
+          lastName: lastName || User?.lastName,
+          bio: bio || User?.bio,
+        },
+      });
+      return newUser;
+    },
   },
   Subscription: {
     message: {
@@ -509,11 +599,17 @@ const resolvers = {
         },
         select: {
           id: true,
+          profilePic: true,
           firstName: true,
           lastName: true,
         },
       });
       return User;
+    },
+    likes: async ({ likes }) => {
+      console.log(likes);
+      const newLikes = likes.map((user) => ({ id: user.userId }));
+      return newLikes;
     },
   },
   Chatroom: {
