@@ -75,9 +75,9 @@ const typeDefs = gql`
   type Query {
     currentUser: User
     getUser(userId: ID): User!
-    getPostsByUser(id: String): User!
     getAllMessages: [Chatroom]
     search(name: String): [User]
+    getPost(postId: Int): Post
   }
   type Mutation {
     createUser(firstName: String, lastName: String, email: String, age: Int, password: String): User
@@ -165,21 +165,6 @@ const resolvers = {
       }
       return null;
     },
-    getPostsByUser: async (_parent, args) => {
-      const User = await prisma.user.findUnique({
-        where: {
-          id: args.id,
-        },
-        select: {
-          firstName: true,
-          lastName: true,
-          age: true,
-          posts: true,
-          email: true,
-        },
-      });
-      return User;
-    },
     getAllMessages: async (_parent, _args, { id }) => {
       const chatrooms = await prisma.messagesMiddleware.findMany({
         where: {
@@ -256,6 +241,9 @@ const resolvers = {
         },
         include: {
           posts: {
+            include: {
+              likes: true,
+            },
             orderBy: {
               createdAt: 'desc',
             },
@@ -263,6 +251,19 @@ const resolvers = {
         },
       });
       return User;
+    },
+    getPost: async (_parent, { postId }, { id }) => {
+      console.log(id);
+      const Post = await prisma.post.findUnique({
+        where: {
+          id: postId,
+        },
+        include: {
+          likes: true,
+        },
+      });
+      console.log(Post);
+      return Post;
     },
   },
   Mutation: {
@@ -586,7 +587,10 @@ const resolvers = {
     },
   },
   User: {
-    post: async ({ posts }) => posts,
+    post: async ({ posts }) => {
+      console.log(posts);
+      return posts;
+    },
     friends: async ({ friends }) => friends,
     sent_friendreq: ({ sent_friendreq }) => sent_friendreq,
     received_friendreq: ({ received_friendreq }) => received_friendreq,
