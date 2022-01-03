@@ -71,6 +71,13 @@ const typeDefs = gql`
     createdAt: String
     link: String
     likes: [User]
+    comments: [Comment]
+  }
+  type Comment {
+    id: ID
+    author: User
+    comment: String
+    post: Post
   }
   type Query {
     currentUser: User
@@ -260,9 +267,9 @@ const resolvers = {
         },
         include: {
           likes: true,
+          comments: true,
         },
       });
-      console.log(Post);
       return Post;
     },
   },
@@ -615,6 +622,10 @@ const resolvers = {
       const newLikes = likes.map((user) => ({ id: user.userId }));
       return newLikes;
     },
+    comments: async ({ comments }) => {
+      console.log(comments);
+      return comments;
+    },
   },
   Chatroom: {
     messages: ({ messages }) => messages,
@@ -625,6 +636,24 @@ const resolvers = {
     chatroom: async (parent) => ({ id: parent.chatroom }),
     createdBy: async ({ createdBy }) => createdBy,
     receivedBy: async ({ receivedBy }) => receivedBy,
+  },
+  Comment: {
+    author: async ({ authorId }) => {
+      console.log(authorId);
+      const User = await prisma.user.findUnique({
+        where: {
+          id: authorId,
+        },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          profilePic: true,
+        },
+      });
+      console.log(User);
+      return User;
+    },
   },
 };
 
