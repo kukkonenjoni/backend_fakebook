@@ -96,6 +96,7 @@ const typeDefs = gql`
     acceptFriendReq(friendId: ID): User
     editUser(profilePic: String, age: Int, bio: String, firstName: String, lastName: String): User
     like(postId: Int): Post
+    comment(postId: Int, content: String): Comment
   }
   type Subscription {
     message: Message
@@ -267,7 +268,11 @@ const resolvers = {
         },
         include: {
           likes: true,
-          comments: true,
+          comments: {
+            orderBy: {
+              createdAt: 'desc',
+            },
+          },
         },
       });
       return Post;
@@ -564,6 +569,18 @@ const resolvers = {
         },
       });
       return newUser;
+    },
+    comment: async (_parent, { postId, content }, { id }) => {
+      console.log(postId, id, content);
+      const comment = await prisma.comment.create({
+        data: {
+          authorId: id,
+          comment: content,
+          postId,
+        },
+      });
+      console.log(comment);
+      return comment;
     },
   },
   Subscription: {
