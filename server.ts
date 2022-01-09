@@ -10,6 +10,8 @@ import { SubscriptionServer } from 'subscriptions-transport-ws';
 import { makeExecutableSchema } from '@graphql-tools/schema';
 import { PubSub, withFilter } from 'graphql-subscriptions';
 
+const { Storage } = require('@google-cloud/storage');
+
 const path = require('path');
 const fs = require('fs');
 const { GraphQLUpload, graphqlUploadExpress } = require('graphql-upload');
@@ -21,6 +23,19 @@ const cors = require('cors');
 require('dotenv').config();
 
 const prisma = new PrismaClient();
+const storage = new Storage();
+const bucket = storage.bucket(process.env.GCLOUD_STORAGE_BUCKET);
+
+const uploadToGoogleCloud = (createReadStream, filename: string): Promise<void> =>
+  // step 1 - upload the file to Google Cloud Storage
+  new Promise((resolves, rejects) => createReadStream()
+    .pipe(bucket.file(filename).createWriteStream({
+      resumable: false,
+      gzip: true,
+    }))
+    .on('error', (err: any) => rejects(err)) // reject on error
+    .on('finish', resolves)) // resolve on finish
+;
 
 const typeDefs = gql`
 
@@ -367,11 +382,13 @@ const resolvers = {
       const {
         createReadStream, filename,
       } = await file;
-      const stream = createReadStream();
-      const pathName = path.join(__dirname, `/public/images/${filename}`);
-      await stream.pipe(fs.createWriteStream(pathName));
+      try {
+        await uploadToGoogleCloud(createReadStream, filename);
+      } catch (e) {
+        console.log(e);
+      }
       return {
-        url: `http://localhost:4000/images/${filename}`,
+        url: `https://storage.googleapis.com/cobalt-baton-337015-bucket/${filename}`,
       };
     },
     createPost: async (_parent, args, context) => {
@@ -380,6 +397,15 @@ const resolvers = {
           authorId: context.id,
           imageUrl: args.imageUrl,
           content: args.content,
+        },
+        select: {
+          imageUrl: true,
+          content: true,
+          id: true,
+          likes: true,
+          createdAt: true,
+          authorId: true,
+          link: true,
         },
       });
       return newPost;
@@ -604,6 +630,29 @@ const resolvers = {
           firstName: true,
           lastName: true,
           age: true,
+          friends: {
+            select: {
+              firstName: true,
+              lastName: true,
+              id: true,
+              status: true,
+            },
+          },
+          sent_friendreq: {
+            select: {
+              id: true,
+              lastName: true,
+              firstName: true,
+            },
+          },
+          received_friendreq: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              profilePic: true,
+            },
+          },
         },
       });
       console.log(user);
@@ -677,6 +726,7 @@ const resolvers = {
 (async function startApolloServer(typeDefs, resolvers) {
   const app = express();
   const schema = makeExecutableSchema({ typeDefs, resolvers });
+  app.options('*', cors());
   app.use(cors());
   const httpServer = createServer(app);
   const server = new ApolloServer({
@@ -722,7 +772,8 @@ const resolvers = {
   });
   await server.start();
   app.use(graphqlUploadExpress());
-  app.use(express.static('public'));
+  app.use(express.static(path.join(__dirname, 'public')));
+  app.use(express.static(path.join(__dirname, 'build/public')));
   server.applyMiddleware({ app });
   const subscriptionServer = SubscriptionServer.create(
     {
